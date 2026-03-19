@@ -57,7 +57,51 @@ function normalizePhone(num) {
   return '0' + n;
 }
 
+/**
+ * Start recording the current call. Pass StatusCallback so Exotel POSTs RecordingUrl when done.
+ */
+async function startRecording(callSid, statusCallbackUrl) {
+  if (!sid || !token) throw new Error('Missing Exotel credentials');
+  const url = `https://${subdomain}/v1/Accounts/${sid}/Calls/${callSid}/recording.json`;
+  await axios.post(
+    url,
+    new URLSearchParams({
+      Action: 'START',
+      RecordingChannels: 'single',
+      RecordingFormat: 'mp3',
+      Leg1Recording: 'True',
+      ...(statusCallbackUrl && { StatusCallback: statusCallbackUrl }),
+    }),
+    {
+      headers: {
+        Authorization: `Basic ${auth}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+    }
+  );
+}
+
+/**
+ * Stop recording the current call. RecordingUrl will be sent to the StatusCallback URL.
+ */
+async function stopRecording(callSid) {
+  if (!sid || !token) throw new Error('Missing Exotel credentials');
+  const url = `https://${subdomain}/v1/Accounts/${sid}/Calls/${callSid}/recording.json`;
+  await axios.post(
+    url,
+    new URLSearchParams({ Action: 'STOP' }),
+    {
+      headers: {
+        Authorization: `Basic ${auth}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+    }
+  );
+}
+
 module.exports = {
   transferCall,
   normalizePhone,
+  startRecording,
+  stopRecording,
 };

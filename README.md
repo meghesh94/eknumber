@@ -109,6 +109,29 @@ Use the full URLs, e.g.:
 
 Exotel may send GET or POST; this app supports **POST** with body or query params: `CallSid`, `From`/`CallFrom`, `To`/`CallTo`, `CallStatus`, `RecordingUrl`, `RecordingDuration`, `digits`.
 
+**If your Exotel plan has no Record/Voicemail applet**, use the **Passthru + Recording API** flow instead. The app provides a **wait** endpoint (Passthru holds until the app responds), so you don’t need a Timing/Wait applet:
+
+1. **Passthru** → URL: `https://your-app.onrender.com/call/start_recording`  
+   When the call reaches this, the app starts recording and creates call state.  
+   **Once URL returns OK (200)** → go to step 2.
+
+2. **Greeting** → Play this text (or use text-to-speech):  
+   *"Namaste. EkNumber pe aapka swagat hai. Aap kis company ka support chahte hain? Beep ke baad boliye."*
+
+3. **Passthru** → URL: `https://your-app.onrender.com/call/wait?seconds=3`  
+   The app waits 3 seconds then returns 200 (caller has time to say the company name while recording).
+
+4. **Passthru** → URL: `https://your-app.onrender.com/call/stop_recording`  
+   The app stops recording. Exotel will later POST the recording URL to your app.
+
+5. **Passthru** → URL: `https://your-app.onrender.com/call/wait?seconds=5`  
+   The app waits 5 seconds so it can receive the recording, run STT, and match the company before the next step.
+
+6. **Connect** (dynamic URL) → URL: `https://your-app.onrender.com/call/connect`  
+   The app returns the support number; Exotel connects the caller to it.
+
+Replace `your-app.onrender.com` with your real app URL. You don’t need a Record/Voicemail or Timing applet—the app uses Exotel’s Recording API and the `/call/wait` endpoint for delays.
+
 ### 7. Run locally and test with ngrok
 
 ```bash
@@ -255,5 +278,6 @@ eknumber/
 ## License
 
 Use and modify as needed for your project.
-#   e k n u m b e r  
+#   e k n u m b e r 
+ 
  

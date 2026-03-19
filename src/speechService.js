@@ -17,10 +17,12 @@ function ensureTmpDir() {
 
 /**
  * Download audio from URL to a temp file and return path.
+ * Uses .mp3 extension by default (Exotel Recording API returns MP3).
  */
 async function downloadAudio(recordingUrl) {
   const dir = ensureTmpDir();
-  const filename = `rec_${Date.now()}_${Math.random().toString(36).slice(2)}.wav`;
+  const ext = (recordingUrl.split('?')[0].toLowerCase().match(/\.(wav|mp3|ogg|flac)$/) || [])[1] || 'mp3';
+  const filename = `rec_${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
   const filepath = path.join(dir, filename);
 
   const response = await axios({
@@ -40,22 +42,29 @@ async function downloadAudio(recordingUrl) {
 
 /**
  * Transcribe audio file using Google Cloud Speech-to-Text.
- * Returns transcript string or null on failure.
+ * Supports MP3 (Exotel) and WAV (LINEAR16 8kHz). Returns transcript string or null on failure.
  */
 async function transcribe(filepath) {
   const content = fs.readFileSync(filepath).toString('base64');
+  const ext = path.extname(filepath).toLowerCase().slice(1);
+
+  const config = {
+    languageCode: 'en-IN',
+    alternativeLanguageCodes: ['hi-IN'],
+    maxAlternatives: 1,
+  };
+
+  if (ext === 'mp3') {
+    config.encoding = 'MP3';
+    config.sampleRateHertz = 8000; // Exotel typically 8kHz
+  } else {
+    config.encoding = 'LINEAR16';
+    config.sampleRateHertz = 8000;
+  }
 
   const [response] = await client.recognize({
-    config: {
-      encoding: 'LINEAR16',
-      sampleRateHertz: 8000,
-      languageCode: 'en-IN',
-      alternativeLanguageCodes: ['hi-IN'],
-      maxAlternatives: 1,
-    },
-    audio: {
-      content,
-    },
+    config,
+    audio: { content },
   });
 
   const transcript = response.results

@@ -88,6 +88,56 @@ app.post('/call/incoming', (req, res) => {
   });
 });
 
+// Passthru: start recording (Exotel Recording API). Creates state and sets StatusCallback so we get RecordingUrl later.
+app.get('/call/start_recording', (req, res) => {
+  const CallSid = req.query.CallSid;
+  const From = req.query.From || req.query.CallFrom;
+  const To = req.query.To || req.query.CallTo;
+  if (!CallSid) {
+    res.status(400).send('CallSid required');
+    return;
+  }
+  callHandler.getOrCreateState(CallSid, From, To);
+  const statusCallback = `${baseUrl()}/call/recording`;
+  exotelService
+    .startRecording(CallSid, statusCallback)
+    .then(() => res.status(200).send('OK'))
+    .catch((e) => {
+      console.error('Start recording error:', e);
+      res.status(500).send('Error');
+    });
+});
+
+// Passthru: stop recording. Exotel will POST RecordingUrl to StatusCallback (/call/recording) when ready.
+app.get('/call/stop_recording', (req, res) => {
+  const CallSid = req.query.CallSid;
+  if (!CallSid) {
+    res.status(400).send('CallSid required');
+    return;
+  }
+  exotelService
+    .stopRecording(CallSid)
+    .then(() => res.status(200).send('OK'))
+    .catch((e) => {
+      console.error('Stop recording error:', e);
+      res.status(500).send('Error');
+    });
+});
+
+// Passthru: wait (delay). Use when Exotel has no "Timing/Wait" applet. Holds the request then returns 200.
+// After Greeting: /call/wait?seconds=3 (user speaks). After stop_recording: /call/wait?seconds=5 (for callback).
+app.get('/call/wait', (req, res) => {
+  const raw = req.query.seconds;
+  const sec = Math.min(Math.max(parseInt(raw, 10) || 3, 1), 30);
+  setTimeout(() => res.status(200).send('OK'), sec * 1000);
+});
+
+// True when Exotel sent this as Recording API StatusCallback (we just acknowledge with 200, no XML).
+function isRecordingStatusCallback(req) {
+  const body = req.body || {};
+  return body.Status != null || body.DateUpdated != null || req.query.Status != null || req.query.DateUpdated != null;
+}
+
 app.post('/call/recording', async (req, res) => {
   safeExotelResponse(res, callHandler.getErrorPrompt(), async () => {
     const body = req.body || {};
@@ -95,9 +145,11 @@ app.post('/call/recording', async (req, res) => {
     const RecordingUrl = body.RecordingUrl || req.query.RecordingUrl;
     const From = body.From || body.CallFrom || req.query.From || req.query.CallFrom;
     const To = body.To || body.CallTo || req.query.To || req.query.CallTo;
+    const isCallback = isRecordingStatusCallback(req);
 
     if (!CallSid || !RecordingUrl) {
-      exotelXml(res, `<Say>${escapeXml(callHandler.getErrorPrompt())}</Say><Hangup/>`);
+      if (isCallback) res.status(200).send('OK');
+      else exotelXml(res, `<Say>${escapeXml(callHandler.getErrorPrompt())}</Say><Hangup/>`);
       return;
     }
 
@@ -110,14 +162,15 @@ app.post('/call/recording', async (req, res) => {
     } catch (e) {
       console.error('STT error:', e);
       logger.logCall({
-        callSid: CallSid,
-        transcript: null,
-        matchedCompany: null,
-        transferNumber: null,
-        outcome: 'error',
-        error: e.message,
-      });
-      exotelXml(res, `<Say>${escapeXml(callHandler.getErrorPrompt())}</Say><Hangup/>`);
+          callSid: CallSid,
+          transcript: null,
+          matchedCompany: null,
+          transferNumber: null,
+          outcome: 'error',
+          error: e.message,
+        });
+      if (isCallback) res.status(200).send('OK');
+      else exotelXml(res, `<Say>${escapeXml(callHandler.getErrorPrompt())}</Say><Hangup/>`);
       return;
     }
 
@@ -134,7 +187,8 @@ app.post('/call/recording', async (req, res) => {
       const supportNumber = company.support_number;
       if (!supportNumber || String(supportNumber).toLowerCase().includes('no phone')) {
         const notFound = escapeXml(callHandler.getNotFoundPrompt(company.name));
-        exotelXml(res, `<Say>${notFound}</Say><Redirect>${escapeXml(buildRecordAction())}</Redirect>`);
+        if (isCallback) res.status(200).send('OK');
+        else exotelXml(res, `<Say>${notFound}</Say><Redirect>${escapeXml(buildRecordAction())}</Redirect>`);
         return;
       }
       try {
@@ -146,8 +200,11 @@ app.post('/call/recording', async (req, res) => {
           transferNumber: supportNumber,
           outcome: 'connected',
         });
-        const connecting = escapeXml(callHandler.getConnectingPrompt(company.name));
-        exotelXml(res, `<Say>${connecting}</Say><Hangup/>`);
+        if (isCallback) res.status(200).send('OK');
+        else {
+          const connecting = escapeXml(callHandler.getConnectingPrompt(company.name));
+          exotelXml(res, `<Say>${connecting}</Say><Hangup/>`);
+        }
       } catch (e) {
         console.error('Transfer error:', e);
         logger.logCall({
@@ -158,21 +215,22 @@ app.post('/call/recording', async (req, res) => {
           outcome: 'error',
           error: e.message,
         });
-        exotelXml(res, `<Say>${escapeXml(callHandler.getErrorPrompt())}</Say><Hangup/>`);
+        if (isCallback) res.status(200).send('OK');
+        else exotelXml(res, `<Say>${escapeXml(callHandler.getErrorPrompt())}</Say><Hangup/>`);
       }
       return;
     }
 
     if (matchResult.type === 'ambiguous' && matchResult.companies && matchResult.companies.length >= 2) {
       callHandler.setState(CallSid, { ...callHandler.getState(CallSid), step: 'ambiguous' });
-      const a = matchResult.companies[0].name;
-      const b = matchResult.companies[1].name;
-      const prompt = escapeXml(callHandler.getAmbiguousPrompt(a, b));
-      const digitsAction = escapeXml(buildDigitsAction());
-      exotelXml(
-        res,
-        `<Say>${prompt}</Say><Gather action="${digitsAction}" numDigits="1" timeout="5"/>`
-      );
+      if (isCallback) res.status(200).send('OK');
+      else {
+        const a = matchResult.companies[0].name;
+        const b = matchResult.companies[1].name;
+        const prompt = escapeXml(callHandler.getAmbiguousPrompt(a, b));
+        const digitsAction = escapeXml(buildDigitsAction());
+        exotelXml(res, `<Say>${prompt}</Say><Gather action="${digitsAction}" numDigits="1" timeout="5"/>`);
+      }
       return;
     }
 
@@ -187,12 +245,14 @@ app.post('/call/recording', async (req, res) => {
         transferNumber: null,
         outcome: 'not_found',
       });
-      exotelXml(res, `<Say>${escapeXml(callHandler.getErrorPrompt())}</Say><Hangup/>`);
+      if (isCallback) res.status(200).send('OK');
+      else exotelXml(res, `<Say>${escapeXml(callHandler.getErrorPrompt())}</Say><Hangup/>`);
       return;
     }
 
     const notFound = escapeXml(callHandler.getNotFoundPrompt(transcript || 'that'));
-    exotelXml(res, `<Say>${notFound}</Say><Record action="${escapeXml(buildRecordAction())}" maxLength="10" playBeep="true"/>`);
+    if (isCallback) res.status(200).send('OK');
+    else exotelXml(res, `<Say>${notFound}</Say><Record action="${escapeXml(buildRecordAction())}" maxLength="10" playBeep="true"/>`);
   });
 });
 
