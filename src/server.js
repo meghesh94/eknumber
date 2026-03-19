@@ -1,4 +1,15 @@
 require('dotenv').config();
+
+// On Render (and similar), credentials are in env, not a file. Write to temp file if provided.
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
+  const credPath = path.join(os.tmpdir(), 'eknumber-google-credentials.json');
+  fs.writeFileSync(credPath, process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
+  process.env.GOOGLE_APPLICATION_CREDENTIALS = credPath;
+}
+
 const express = require('express');
 const callHandler = require('./callHandler');
 const speechService = require('./speechService');
