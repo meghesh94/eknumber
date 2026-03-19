@@ -1,11 +1,14 @@
 const axios = require('axios');
 
-const sid = process.env.EXOTEL_SID;
+const sid = process.env.EXOTEL_SID; // Account SID (used in URL path)
+const apiKey = process.env.EXOTEL_API_KEY || sid; // API Key = Basic auth username (often different from SID!)
 const token = process.env.EXOTEL_TOKEN;
 const virtualNumber = process.env.EXOTEL_VIRTUAL_NUMBER;
 const subdomain = process.env.EXOTEL_SUBDOMAIN || 'api.exotel.com';
 
-const auth = Buffer.from(`${sid}:${token}`).toString('base64');
+function getAuth() {
+  return Buffer.from(`${apiKey}:${token}`).toString('base64');
+}
 
 /**
  * Transfer the call to the company's support number.
@@ -40,7 +43,7 @@ async function transferCall(callerNumber, supportNumber) {
     }),
     {
       headers: {
-        Authorization: `Basic ${auth}`,
+        Authorization: `Basic ${getAuth()}`,
         'Content-Type': 'application/x-www-form-urlencoded',
       },
     }
@@ -74,7 +77,7 @@ async function startRecording(callSid, statusCallbackUrl) {
     }),
     {
       headers: {
-        Authorization: `Basic ${auth}`,
+        Authorization: `Basic ${getAuth()}`,
         'Content-Type': 'application/x-www-form-urlencoded',
       },
     }
@@ -92,7 +95,7 @@ async function stopRecording(callSid) {
     new URLSearchParams({ Action: 'STOP' }),
     {
       headers: {
-        Authorization: `Basic ${auth}`,
+        Authorization: `Basic ${getAuth()}`,
         'Content-Type': 'application/x-www-form-urlencoded',
       },
     }
