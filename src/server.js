@@ -23,6 +23,15 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Log every request so you can see API calls in Render (or any host) logs
+app.use((req, res, next) => {
+  const ts = new Date().toISOString();
+  const callSid = req.query.CallSid || req.body?.CallSid || '';
+  const extra = callSid ? ` CallSid=${callSid}` : '';
+  console.log(`[${ts}] ${req.method} ${req.path}${extra}`);
+  next();
+});
+
 function xml(res, body) {
   res.set('Content-Type', 'application/xml');
   res.send(body);
@@ -99,9 +108,13 @@ app.get('/call/start_recording', (req, res) => {
   }
   callHandler.getOrCreateState(CallSid, From, To);
   const statusCallback = `${baseUrl()}/call/recording`;
+  console.log(`[start_recording] Starting recording for CallSid=${CallSid}, callback=${statusCallback}`);
   exotelService
     .startRecording(CallSid, statusCallback)
-    .then(() => res.status(200).send('OK'))
+    .then(() => {
+      console.log(`[start_recording] OK for CallSid=${CallSid}`);
+      res.status(200).send('OK');
+    })
     .catch((e) => {
       console.error('Start recording error:', e);
       res.status(500).send('Error');
@@ -115,9 +128,13 @@ app.get('/call/stop_recording', (req, res) => {
     res.status(400).send('CallSid required');
     return;
   }
+  console.log(`[stop_recording] Stopping recording for CallSid=${CallSid}`);
   exotelService
     .stopRecording(CallSid)
-    .then(() => res.status(200).send('OK'))
+    .then(() => {
+      console.log(`[stop_recording] OK for CallSid=${CallSid}`);
+      res.status(200).send('OK');
+    })
     .catch((e) => {
       console.error('Stop recording error:', e);
       res.status(500).send('Error');
@@ -156,6 +173,7 @@ app.post('/call/recording', async (req, res) => {
     let state = callHandler.getState(CallSid);
     if (!state) state = callHandler.getOrCreateState(CallSid, From, To);
 
+    console.log(`[recording] Processing RecordingUrl for CallSid=${CallSid}`);
     let transcript = null;
     try {
       transcript = await speechService.transcribeFromUrl(RecordingUrl);
