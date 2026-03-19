@@ -1,0 +1,21 @@
+{
+  "name": "eknumber",
+  "version": "1.0.0",
+  "description": "Voice-based call routing service for India - one number to reach any company support",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "axios": "^1.6.2",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "fuse.js": "^7.0.0",
+    "@google-cloud/speech": "^6.2.0",
+    "googleapis": "^128.0.0"
+  }
+}
